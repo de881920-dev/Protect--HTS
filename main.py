@@ -5,7 +5,7 @@ import random
 import os
 from dotenv import load_dotenv
 
-# Charge les variables d'environnement (pour Railway)
+# Chargement du Token (Railway)
 load_dotenv()
 
 # --- CONFIGURATION DES IDS ---
@@ -33,7 +33,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 class TicketSelect(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="HTS SHOP", emoji="🛒", description="Achats Boutique"),
+            discord.SelectOption(label="HTS SHOP", emoji="🛒", description="Pour vos achats sur la boutique"),
             discord.SelectOption(label="RECRUTEMENT", emoji="📝"),
             discord.SelectOption(label="COMMUNITY MANAGER", emoji="📱"),
             discord.SelectOption(label="QUESTION", emoji="❓"),
@@ -49,10 +49,9 @@ class TicketSelect(discord.ui.Select):
         choix = self.values[0]
         guild = interaction.guild
         role_to_ping = ROLE_BOUTIQUE if choix == "HTS SHOP" else ROLE_MOD_TICKET
-        category_id = CATEGORIES.get(choix)
-        category = guild.get_channel(category_id)
+        category = guild.get_channel(CATEGORIES.get(choix))
 
-        if category is None:
+        if not category:
             return await interaction.followup.send(f"❌ Erreur : Catégorie `{choix}` introuvable.", ephemeral=True)
 
         overwrites = {
@@ -61,22 +60,20 @@ class TicketSelect(discord.ui.Select):
             guild.get_role(role_to_ping): discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
         
-        try:
-            channel = await guild.create_text_channel(
-                name=f"{choix.lower().replace(' ', '-')}-{interaction.user.name}", 
-                overwrites=overwrites,
-                category=category
-            )
-            await interaction.followup.send(f"✅ Ticket créé : {channel.mention}", ephemeral=True)
-            
-            embed = discord.Embed(
-                title=f"Ticket - {choix}",
-                description=f"Bienvenue {interaction.user.mention},\nLe staff <@&{role_to_ping}> va vous répondre.\n\nUtilisez `!close` pour fermer.",
-                color=0x2b2d31
-            )
-            await channel.send(content=f"{interaction.user.mention} | <@&{role_to_ping}>", embed=embed)
-        except Exception as e:
-            await interaction.followup.send(f"❌ Erreur : {e}", ephemeral=True)
+        channel = await guild.create_text_channel(
+            name=f"{choix.lower().replace(' ', '-')}-{interaction.user.name}", 
+            overwrites=overwrites,
+            category=category
+        )
+
+        await interaction.followup.send(f"✅ Ticket créé : {channel.mention}", ephemeral=True)
+        
+        embed = discord.Embed(
+            title=f"Ticket - {choix}",
+            description=f"Bienvenue {interaction.user.mention},\nLe staff <@&{role_to_ping}> va vous répondre.\n\nUtilisez `!close` pour fermer.",
+            color=0x2b2d31
+        )
+        await channel.send(content=f"{interaction.user.mention} | <@&{role_to_ping}>", embed=embed)
 
 class TicketView(discord.ui.View):
     def __init__(self):
@@ -88,20 +85,22 @@ class TicketView(discord.ui.View):
 async def setup_ticket(ctx):
     embed = discord.Embed(
         title="Système de Ticket", 
-        description="Choisissez la catégorie ci-dessous pour ouvrir un ticket.", 
+        description="Avant d'ouvrir un ticket, VEUILLEZ lire attentivement les informations.\nChoisissez la catégorie ci-dessous.", 
         color=0x2b2d31
     )
+    # Tu peux ajouter une image d'en-tête ici si tu veux
     await ctx.send(embed=embed, view=TicketView())
 
 @bot.command()
 async def close(ctx):
-    valid_categories = [c.lower().replace(" ", "-") for c in CATEGORIES.keys()]
-    if any(word in ctx.channel.name for word in valid_categories):
+    # On vérifie si c'est un salon de ticket
+    valid_prefixes = [c.lower().replace(" ", "-") for c in CATEGORIES.keys()]
+    if any(ctx.channel.name.startswith(p) for p in valid_prefixes):
         await ctx.send("🗑️ **Fermeture du ticket dans 5 secondes...**")
         await asyncio.sleep(5)
         await ctx.channel.delete()
 
-# --- GIVEAWAY ---
+# --- SYSTÈME GIVEAWAY ---
 class GiveawayView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -126,6 +125,7 @@ async def gstart(ctx, temps: int, winners: int, emoji: str, *, lot: str):
     )
     view = GiveawayView()
     view.children[0].emoji = emoji
+    
     await ctx.send(embed=embed, view=view)
     await asyncio.sleep(temps * 60)
 
@@ -136,21 +136,21 @@ async def gstart(ctx, temps: int, winners: int, emoji: str, *, lot: str):
     mentions = ", ".join([f"<@{uid}>" for uid in gagnants])
     await ctx.send(f"🎉 Félicitations {mentions} ! Vous gagnez : **{lot}** !")
 
-# --- MODERATION ---
+# --- MODERATION (AVEC AUTO-SUPPRESSION 3s) ---
 @bot.command()
 @commands.has_role(ROLE_MOD_GENERAL)
 async def clear(ctx, amount: int):
     await ctx.channel.purge(limit=amount + 1)
+    await ctx.send(f"🧹 {amount} messages supprimés.", delete_after=3)
 
 @bot.command()
 @commands.has_role(ROLE_MOD_GENERAL)
 async def ban(ctx, member: discord.Member, *, reason="Aucune raison"):
     await member.ban(reason=reason)
-    await ctx.send(f"🔨 {member.mention} a été banni.")
+    await ctx.send(f"🔨 {member.mention} a été banni.", delete_after=3)
 
 @bot.event
 async def on_ready():
-    print(f"✅ Bot connecté : {bot.user.name}")
+    print(f"✅ Bot opérationnel : {bot.user.name}")
 
-# Lancement avec le token Railway
 bot.run(os.getenv("TOKEN"))
